@@ -1,74 +1,87 @@
-
+# Design Build Destroy 2021
+# Plex TV Auto Collection
+# - Adds TV shows to collections based on the Network name they belong to
+# - Attempt to recreate TV stations, like sorting through Netflix originals, Hulu, CBS All access as 
+#   like using their individual apps to break down large collections or see whats new on those services.
 
 import time
 import os.path
 import urllib.request, json 
 from plexapi.server import PlexServer
 
-baseurl = 'YOUR PLEX SERVER URL ie http://1.1.1.1:32400' 
+base_url = 'YOUR PLEX URL HERE'
 token = 'YOUR PLEX TOKEN HERE'
-plex = PlexServer(baseurl, token)
+plex = PlexServer(base_url, token)
+tmdb_key = 'YOUR TMDB KEY HERE'
 
-tmdbKey = 'YOUR TMDB API KEY HERE'
-
-def ProcessTVnetworks(collection ="", networkID = ""):
-    # Load the fist page to get the total page number of results
-    base = "https://api.themoviedb.org/3/discover/tv?api_key=" +tmdbKey + "&with_networks=" + networkID + "&page=1"
+def ProcessTVnetworks(collection ='', network_id = ''):
+    # Load the fist page to get the total page number of results so we can loop through each page's list
+    base = "https://api.themoviedb.org/3/discover/tv?api_key=" + tmdb_key + "&with_networks=" + network_id + "&page=1"
     with urllib.request.urlopen(base) as url:
         data = json.loads(url.read().decode())
     
-    totalPages = data['total_pages']
+    total_pages = data['total_pages']
     
-    # Loop through each page to process the show list and add to the collection
-    for i in range(1,int(totalPages)+1):
-        base = "https://api.themoviedb.org/3/discover/tv?api_key" +tmdbKey + "&with_networks=" + networkID + "&page=" + str(i)
+    # Loop through each page to process the show list and add to the collection if show is found in Plex
+    for i in range(1,int(total_pages)+1):
+        base = "https://api.themoviedb.org/3/discover/tv?api_key=" + tmdb_key + "&with_networks=" + network_id + "&page=" + str(i)
         try:
             with urllib.request.urlopen(base) as url:
                 data = json.loads(url.read().decode())
             
             for results in data['results']:        
+                # Grab the show name and the Guid value to compare to Plex to verify we got the right show
                 title = results['name']
                 guidID = "tmdb://" + str(results['id'])
                 guidIDval = str(results['id'])
             
                 print(title + "   ", end='')
-
+                
                 movies = plex.library.section('TV Shows')
                 collected = movies.search(collection=collection, title=title)
+                
                 if collected:
-                    #print(title + " Already in " + collection)
+                    # Show is already in the collection, skip
                     print("Already in " + collection)
                 else:
+                    # Show not in the connection loop through possible GUID locations for matching
+                    # Plex may store the TMDB Guid in different places depending on the scanner used
+                    # So we'll check in multiple spots, GUID is used to make sure we are matching 100%
+                    # to the correct show as Plex sees it, using title only will result in mismatches
+                    matched_guid = False
                     for item in plex.library.search(title, libtype="show"):
                         # Check the scanner guid value for match for the found title
                         if ("themoviedb" in item.guid) and (guidIDval in item.guid):
                             item.addCollection(collection)
-                            #print(title + " Scanner guid Matched")
-                            print('Scanner guid Matched')
+                            print('Scanner Guid Matched')
+                            matched_guid = True
                             break
                         else:
                             # If we got here no scanner guid matches so loop through alt guids instead for match
                             for guid in item.guids:
                                 if guidID in guid.id:
                                     item.addCollection(collection)
-                                    #print(title + " Guid Matched")
                                     print('Guid Matched')
+                                    matched_guid = True
                                     break
-                                else:
-                                    # Here nothing matches or guids not present to verify the show
-                                    # Log no match or something most likely show not in library
-                                    a=1 #placeholder
-                                    break
-                    print('NOT FOUND')               
+                    if matched_guid:
+                        # We found a match already reset flag
+                        matched_guid = False
+                    else:
+                        # If we got here show either doesn't exist or no Guid's matched
+                        print('NOT FOUND')
+                    
         except Exception as e:
             print("***** HOLD *****")
             print(e)
             time.sleep(30)
-        
         finally:
             pass
         
 #END processTVnetworks                            
+
+
+
 
 
 #MAIN
